@@ -1,0 +1,18 @@
+HVAC Detection Performance Summary
+=================================
+
+Model: hvac_detector_yolov8l.pt
+Test Directory: test_HVAC_batch
+Confidence Threshold: 0.2
+IoU Threshold: 0.5
+
+Performance Metrics:
+  True Positives: 5
+  True Negatives: 10
+  False Positives: 0
+  False Negatives: 5
+
+  Accuracy: 0.7500
+  Precision: 1.0000
+  Recall (Sensitivity): 0.5000
+  F1 Score: 0.6667
