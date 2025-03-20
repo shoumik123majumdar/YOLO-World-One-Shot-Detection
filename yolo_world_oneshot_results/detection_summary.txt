@@ -1,0 +1,19 @@
+HVAC Detection Performance Summary
+=================================
+
+Reference Image: test_HVAC_batch/has_hvac_1.jpg
+Test Directory: test_HVAC_batch
+Feature Extraction Layer: model.22
+Similarity Threshold: 0.6
+Max Region Proposals: 75
+
+Performance Metrics:
+  True Positives: 10
+  True Negatives: 0
+  False Positives: 10
+  False Negatives: 0
+
+  Accuracy: 0.5000
+  Precision: 0.5000
+  Recall (Sensitivity): 1.0000
+  F1 Score: 0.6667
