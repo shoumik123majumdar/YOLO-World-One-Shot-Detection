@@ -159,7 +159,7 @@ def run_yolo_world_detection(
     return metrics
 
 if __name__ == "__main__":
-    model_path = "hvac_detector_yolov8l.pt"  
+    model_path = "yolov8l-world.pt"  
     test_dir = "test_HVAC_batch"  
     output_dir = "custom_hvac_results" 
     
