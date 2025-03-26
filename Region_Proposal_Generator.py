@@ -212,8 +212,8 @@ if __name__ == "__main__":
     ref_roi = region_generator.set_reference(reference_image)
     
     # Detect objects in a test image
-    test_image = "test_HVAC_batch/has_hvac_1.jpg"
-    detections = region_generator.detect_objects(test_image,max_proposals=500)
+    test_image = "test_HVAC_batch/has_hvac_2.jpg"
+    detections = region_generator.detect_objects(test_image,max_proposals=50)
     
     # Apply NMS to remove overlapping detections
     filtered_detections = region_generator.non_max_suppression(detections, iou_threshold=0.5)
