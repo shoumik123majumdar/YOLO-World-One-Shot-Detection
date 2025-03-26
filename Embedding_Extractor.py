@@ -7,7 +7,7 @@ class EmbeddingExtractor:
     def __init__(self):
         self.model_path = "yolov8l-world.pt"
         self.reference_embedding = None
-        self.layer_name = "model.23.cv4.1"
+        self.layer_name = "model.16.im_pools.2"
         #model.22 (layer)
         self.model = YOLO(self.model_path)
 
@@ -92,11 +92,20 @@ class EmbeddingExtractor:
         # Remove the hook
         hook.remove()
 
-        print(f"Raw embedding shape: {embeddings_output.shape}")
-        print(f"Sample values: {embeddings_output[0, :5]}")
-    
-        return embeddings_output
-    
+        
+        print(f"Pooling output shape: {embeddings_output.shape}")
+        
+        # Convert to vector - AdaptiveMaxPool2d outputs will typically be
+        # [batch_size, channels, pooled_height, pooled_width]
+        # For cosine similarity, we need to convert this to a 1D vector
+        
+        # First flatten the pooled output to [batch_size, channels*height*width]
+        embeddings = embeddings_output.flatten(1)
+        
+        # Normalize for similarity comparison
+        embeddings = F.normalize(embeddings, p=2, dim=1)
+        return embeddings
+        
     def select_roi(self,image_path):
         img = cv2.imread(image_path)
         roi = cv2.selectROI("Select HVAC ROI", img, fromCenter=False, showCrosshair=True)
@@ -136,14 +145,43 @@ class EmbeddingExtractor:
             print(f" - {layer} ({layer_dict[layer]})")
     
         return layer_dict
+    
 
 if __name__ == "__main__":
     reference_image = "One_Shot_HVAC.jpg"
     extractor = EmbeddingExtractor()
-    #extractor.view_model_layers()
-    roi = extractor.select_roi(reference_image)
 
+    """
+    pooling_layers = extractor.find_pooling_layers()
+    print("\nPooling layers found:")
+    for name, type_name in pooling_layers:
+        print(f" - {name}: {type_name}")
+
+    Results:
+    Pooling layers found:
+    - model.9: SPPF
+    - model.9.m: MaxPool2d
+    - model.16: ImagePoolingAttn
+    - model.16.im_pools.0: AdaptiveMaxPool2d
+    - model.16.im_pools.1: AdaptiveMaxPool2d
+    - model.16.im_pools.2: AdaptiveMaxPool2d
+    """
+    
+
+
+    #extractor.view_model_layers()
+    """
+    Claude Reccomended Layers:
+    Recommended feature extraction layers:
+    - model.23.cv3.2.0.conv (Conv2d)
+    - model.23.cv3.2.1 (Conv)
+    - model.23.cv3.2.1.conv (Conv2d)
+    - model.23.cv3.2.2 (Conv2d)
+    - model.23.dfl.conv (Conv2d)
+    """
+    roi = extractor.select_roi(reference_image)
     reference_embedding = extractor.extract_embedding_from_roi(reference_image,roi,crop_save_path="reference_crop.jpg")
+    
     #Manually test if reference embedding cosine similarity is the same 
     test_image = "test_HVAC_batch/has_hvac_2.jpg"
     roi = extractor.select_roi(test_image)
