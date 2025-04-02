@@ -4,41 +4,59 @@ import numpy as np
 import csv
 from tqdm import tqdm
 import sys
-from ultralytics import YOLO 
 
-def run_yolo_world_detection(
-    model_path,
-    test_dir, 
-    output_dir, 
+# Import the embedding extractor and region proposal generator
+from CLIP_Embedding_Extractor import EmbeddingExtractor
+from Region_Proposal_Generator import RegionProposalGenerator
+
+def run_embedding_based_detection(
+    reference_image_path,
+    reference_roi=None,
+    test_dir=None,
+    output_dir=None,
     has_hvac_filenames=None,
-    confidence_threshold=0.5, 
+    similarity_threshold=0.83,
     iou_threshold=0.5,
-    device=None 
+    max_proposals=100,
+    clip_model_path='openai/clip-vit-base-patch32'
 ):
     """
-    Run custom YOLO-World model for HVAC detection and evaluate performance.
+    Run embedding-based HVAC detection using CLIP and region proposals.
     
     Args:
-        model_path: Path to custom YOLO-World model
+        reference_image_path: Path to reference image containing an HVAC unit
+        reference_roi: ROI of HVAC in reference image as (x,y,w,h), if None user will select
         test_dir: Directory containing test images
         output_dir: Directory to save results
         has_hvac_filenames: List of filenames known to contain HVAC units (ground truth)
-        confidence_threshold: Minimum confidence score for detection
+        similarity_threshold: Minimum similarity score for detection
         iou_threshold: IoU threshold for NMS
-        device: Device to run model on (None for auto-select)
+        max_proposals: Maximum number of region proposals to evaluate per image
+        clip_model_path: Path to CLIP model
     
     Returns:
         Dictionary with performance metrics
     """
     os.makedirs(output_dir, exist_ok=True)
     
-    print(f"Loading custom YOLO-World model from {model_path}...")
-    model = YOLO(model_path)
+    print(f"Initializing CLIP-based embedding extractor with {clip_model_path}...")
+    extractor = EmbeddingExtractor(clip_model_path=clip_model_path)
     
-    print(f"Model loaded successfully")
+    print(f"Initializing region proposal generator with similarity threshold {similarity_threshold}...")
+    region_generator = RegionProposalGenerator(
+        embedding_extractor=extractor,
+        similarity_threshold=similarity_threshold
+    )
+    
+    # Set reference embedding
+    print(f"Setting reference embedding from {reference_image_path}...")
+    if reference_roi is None:
+        print("Please select the HVAC unit in the reference image...")
+        reference_roi = region_generator.set_reference(reference_image_path)
+    else:
+        region_generator.set_reference(reference_image_path, reference_roi)
     
     results_csv = os.path.join(output_dir, "detection_results.csv")
-    
     
     true_positives = 0
     false_positives = 0
@@ -55,23 +73,20 @@ def run_yolo_world_detection(
             image_path = os.path.join(test_dir, filename)
             output_path = os.path.join(output_dir, filename)
             
+            # Determine ground truth
             has_hvac_gt = False
             if has_hvac_filenames:
                 has_hvac_gt = filename in has_hvac_filenames
             
+            # Detect HVAC using region proposals and embedding comparison
+            detections = region_generator.detect_objects(image_path, max_proposals)
+            filtered_detections = region_generator.non_max_suppression(detections, iou_threshold)
             
-            results = model.predict(
-                image_path,
-                conf=confidence_threshold,
-                iou=iou_threshold,
-                verbose=False 
-            )
+            # Determine if HVAC was detected
+            detected_hvac = len(filtered_detections) > 0
+            best_score = filtered_detections[0][4] if detected_hvac else 0
             
-            result = results[0]
-            
-            detected_hvac = len(result.boxes) > 0
-            best_score = float(result.boxes.conf[0]) if detected_hvac else 0
-            
+            # Calculate metrics
             if has_hvac_gt and detected_hvac:
                 result_type = "TP" 
                 true_positives += 1
@@ -85,47 +100,54 @@ def run_yolo_world_detection(
                 result_type = "FN"  
                 false_negatives += 1
             
+            # Save visualization with result
+            vis_img = region_generator.visualize_detections(
+                image_path, filtered_detections, show=False
+            )
             
-            result_img = result.plot()
+            # Convert back to BGR for OpenCV
+            vis_img = cv2.cvtColor(np.array(vis_img), cv2.COLOR_RGB2BGR)
             
-            result_img = cv2.cvtColor(np.array(result_img), cv2.COLOR_RGB2BGR)
-            
-            
-            h, w = result_img.shape[:2]
-            overlay = result_img.copy()
+            # Add result text
+            h, w = vis_img.shape[:2]
+            overlay = vis_img.copy()
             cv2.rectangle(overlay, (0, 0), (w, 60), (0, 0, 0), -1)
-            cv2.addWeighted(overlay, 0.7, result_img, 0.3, 0, result_img)
+            cv2.addWeighted(overlay, 0.7, vis_img, 0.3, 0, vis_img)
             
-            result_color = {
-                "TP": (0, 255, 0),
-                "TN": (255, 255, 255), 
-                "FP": (0, 0, 255),   
-                "FN": (0, 165, 255)  
-            }
-            result_text = f"Result: {result_type}"
-            text_size, _ = cv2.getTextSize(result_text, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
-            cv2.putText(result_img, result_text, (w - text_size[0] - 10, 30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, result_color[result_type], 2)
-            
-            cv2.imwrite(output_path, result_img)
-            
-            
+            # Visualize detections and save without result text
+            vis_img = region_generator.visualize_detections(
+            image_path, filtered_detections, show=False
+            )
+
+            # Convert from RGB (from matplotlib) to BGR (for OpenCV)
+            vis_img = cv2.cvtColor(np.array(vis_img), cv2.COLOR_RGB2BGR)
+
+            # Direct save without adding overlay text
+            cv2.imwrite(output_path, vis_img)
+
+            # Write to CSV
             csv_writer.writerow([filename, has_hvac_gt, detected_hvac, best_score, result_type])
+            
     
+    # Calculate final metrics
     total = true_positives + true_negatives + false_positives + false_negatives
     accuracy = (true_positives + true_negatives) / total if total > 0 else 0
     precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
     recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
     f1_score = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
     
+    # Write summary
     summary_path = os.path.join(output_dir, "detection_summary.txt")
     with open(summary_path, 'w') as f:
-        f.write("HVAC Detection Performance Summary\n")
-        f.write("=================================\n\n")
-        f.write(f"Model: {model_path}\n")
+        f.write("HVAC Detection Performance Summary (Embedding-Based)\n")
+        f.write("=================================================\n\n")
+        f.write(f"Reference Image: {reference_image_path}\n")
+        f.write(f"Reference ROI: {reference_roi}\n")
         f.write(f"Test Directory: {test_dir}\n")
-        f.write(f"Confidence Threshold: {confidence_threshold}\n")
-        f.write(f"IoU Threshold: {iou_threshold}\n\n")
+        f.write(f"CLIP Model: {clip_model_path}\n")
+        f.write(f"Similarity Threshold: {similarity_threshold}\n")
+        f.write(f"IoU Threshold: {iou_threshold}\n")
+        f.write(f"Max Proposals: {max_proposals}\n\n")
         
         f.write("Performance Metrics:\n")
         f.write(f"  True Positives: {true_positives}\n")
@@ -159,17 +181,11 @@ def run_yolo_world_detection(
     return metrics
 
 if __name__ == "__main__":
-    model_path = "yolov8l-world.pt"  
-    test_dir = "test_HVAC_batch"  
-    output_dir = "custom_hvac_results" 
+    reference_image = "One_Shot_HVAC.jpg"  # Default reference image
+    test_dir = "test_HVAC_batch"  # Default test directory
+    output_dir = "embedding_hvac_results_0.85"  # Default output directory
     
-    if len(sys.argv) > 1:
-        model_path = sys.argv[1]
-    if len(sys.argv) > 2:
-        test_dir = sys.argv[2]
-    if len(sys.argv) > 3:
-        output_dir = sys.argv[3]
-    
+    # List of images known to contain HVAC units (ground truth)
     hvac_images = [
         "has_hvac_1.jpg",
         "has_hvac_2.jpg",
@@ -183,11 +199,13 @@ if __name__ == "__main__":
         "has_hvac_10.jpg"
     ]
     
-    metrics = run_yolo_world_detection(
-        model_path=model_path,
+    # Run the embedding-based detection
+    metrics = run_embedding_based_detection(
+        reference_image_path=reference_image,
         test_dir=test_dir,
         output_dir=output_dir,
         has_hvac_filenames=hvac_images,
-        confidence_threshold=0.5, 
-        iou_threshold=0.5
+        similarity_threshold=0.85,  # Default threshold from RegionProposalGenerator
+        iou_threshold=0.5,
+        max_proposals=200
     )

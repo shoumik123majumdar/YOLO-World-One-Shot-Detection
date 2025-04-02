@@ -1,13 +1,10 @@
 import cv2
 import numpy as np
-import torch
-import torch.nn.functional as F
-from ultralytics import YOLO
 import matplotlib.pyplot as plt
-from Embedding_Extractor import EmbeddingExtractor  # Import your existing module
+from CLIP_Embedding_Extractor import EmbeddingExtractor  # Import your updated CLIP-based EmbeddingExtractor
 
 class RegionProposalGenerator:
-    def __init__(self, embedding_extractor=None, similarity_threshold=0.9):
+    def __init__(self, embedding_extractor=None, similarity_threshold=0.83):
         """
         Initialize the Region Proposal Generator.
         
@@ -34,6 +31,7 @@ class RegionProposalGenerator:
         if roi is None:
             roi = self.embedding_extractor.select_roi(image_path)
             
+        # Use the new extract_embedding_from_roi method from your CLIP-based extractor
         self.reference_embedding = self.embedding_extractor.extract_embedding_from_roi(image_path, roi)
         print(f"Reference embedding set from ROI: {roi}")
         return roi
@@ -50,11 +48,27 @@ class RegionProposalGenerator:
             List of proposed regions as (x, y, w, h)
         """
         img = cv2.imread(image_path)
+        if img is None:
+            print(f"Error: Could not read image at {image_path}")
+            return []
+            
+        # Setup selective search
         ss = cv2.ximgproc.segmentation.createSelectiveSearchSegmentation()
         ss.setBaseImage(img)
         ss.switchToSelectiveSearchFast()
-        rects = ss.process()[:max_proposals] # Get Top 50 Object Proposals
-        return rects
+        rects = ss.process()
+
+        # Filter out tiny regions that might cause processing errors
+        filtered_rects = []
+        for rect in rects:
+            x, y, w, h = rect
+            if w >= 20 and h >= 20:  # Minimum size requirement
+                filtered_rects.append(rect)
+        
+        # Limit to max_proposals
+        filtered_rects = filtered_rects[:max_proposals]
+        
+        return filtered_rects
     
     def detect_objects(self, image_path, max_proposals=50):
         """
@@ -62,8 +76,7 @@ class RegionProposalGenerator:
         
         Args:
             image_path: Path to the image
-            method: Method to generate proposals ('selective_search' or 'grid')
-            max_proposals: Maximum number of proposals to return
+            max_proposals: Maximum number of proposals to evaluate
             
         Returns:
             List of detected regions as (x, y, w, h, similarity_score)
@@ -73,25 +86,28 @@ class RegionProposalGenerator:
             return []
         
         # Generate region proposals
-        proposals = self.generate_proposals(image_path,max_proposals)
+        proposals = self.generate_proposals(image_path, max_proposals)
         
         # Extract embeddings and compare with reference
         detections = []
         
         print(f"Evaluating {len(proposals)} proposals...")
         for i, roi in enumerate(proposals):
-            embedding = self.embedding_extractor.extract_embedding_from_roi(image_path, roi)
+            # Use the CLIP-based embedding extraction method
+            embedding = self.embedding_extractor.extract_embedding_from_roi(image_path, tuple(roi))
             
             if embedding is not None:
-                similarity = F.cosine_similarity(self.reference_embedding, embedding, dim=1).item()
+                # Calculate similarity with reference embedding
+                similarity = self.embedding_extractor.calculate_similarity(self.reference_embedding, embedding)
                 
                 if similarity > self.similarity_threshold:
                     detections.append((*roi, similarity))
         
+        # Sort by similarity score (highest first)
         detections.sort(key=lambda x: x[4], reverse=True)
         
         print(f"Found {len(detections)} detections above threshold {self.similarity_threshold}")
-        return detections #Return top 3 detections
+        return detections
     
     def non_max_suppression(self, detections, iou_threshold=0.5):
         """
@@ -200,23 +216,71 @@ class RegionProposalGenerator:
             print(f"Visualization saved to {output_path}")
             
         return vis_img_rgb
-
-# Example usage
-if __name__ == "__main__":
-    # Initialize the modules
-    extractor = EmbeddingExtractor()
-    region_generator = RegionProposalGenerator(extractor, similarity_threshold=0.9)
     
-    # Set reference from an image
+    def batch_process(self, image_dir, output_dir=None, iou_threshold=0.5, max_proposals=50):
+        """
+        Process a batch of images and detect objects in each.
+        
+        Args:
+            image_dir: Directory containing images to process
+            output_dir: Directory to save visualization results (optional)
+            iou_threshold: IoU threshold for NMS
+            max_proposals: Maximum number of proposals to evaluate per image
+            
+        Returns:
+            Dictionary mapping image filenames to detection results
+        """
+        import os
+        
+        if self.reference_embedding is None:
+            print("Error: Reference embedding not set. Call set_reference() first.")
+            return {}
+            
+        # Create output directory if needed
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+            
+        results = {}
+        
+        # Get all image files in the directory
+        image_files = [f for f in os.listdir(image_dir) 
+                      if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+                      
+        print(f"Processing {len(image_files)} images...")
+        
+        # Process each image
+        for filename in image_files:
+            image_path = os.path.join(image_dir, filename)
+            print(f"\nProcessing {filename}...")
+            
+            # Detect objects
+            detections = self.detect_objects(image_path, max_proposals)
+            
+            # Apply NMS
+            filtered_detections = self.non_max_suppression(detections, iou_threshold)
+            
+            # Visualize and save results
+            if output_dir:
+                output_path = os.path.join(output_dir, f"detected_{filename}")
+                self.visualize_detections(image_path, filtered_detections, 
+                                          output_path=output_path, show=False)
+            
+            # Store results
+            results[filename] = filtered_detections
+            
+        return results
+
+if __name__ == "__main__":
+    extractor = EmbeddingExtractor(clip_model_path='openai/clip-vit-base-patch32')
+    region_generator = RegionProposalGenerator(extractor)
+    
     reference_image = "One_Shot_HVAC.jpg"
     ref_roi = region_generator.set_reference(reference_image)
     
-    # Detect objects in a test image
-    test_image = "test_HVAC_batch/has_hvac_2.jpg"
-    detections = region_generator.detect_objects(test_image,max_proposals=50)
-    
-    # Apply NMS to remove overlapping detections
+    test_image = "test_HVAC_batch/has_hvac_3.jpg"
+    detections = region_generator.detect_objects(test_image, max_proposals=150)
     filtered_detections = region_generator.non_max_suppression(detections, iou_threshold=0.5)
     
-    # Visualize results
     region_generator.visualize_detections(test_image, filtered_detections, output_path="detected_hvac.jpg")
+    
+    results = region_generator.batch_process("test_HVAC_batch", "output_detections")

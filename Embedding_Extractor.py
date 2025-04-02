@@ -166,8 +166,6 @@ if __name__ == "__main__":
     - model.16.im_pools.1: AdaptiveMaxPool2d
     - model.16.im_pools.2: AdaptiveMaxPool2d
     """
-    
-
 
     #extractor.view_model_layers()
     """
@@ -189,4 +187,3 @@ if __name__ == "__main__":
 
     similarity = F.cosine_similarity(reference_embedding, test_embedding, dim=1).item()
     print(similarity)
-    
