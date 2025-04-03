@@ -1,0 +1,21 @@
+HVAC Detection Performance Summary (Embedding-Based)
+=================================================
+
+Reference Image: sample_1_reference.png
+Reference ROI: (581, 670, 725, 396)
+Test Directory: sample2
+CLIP Model: openai/clip-vit-base-patch32
+Similarity Threshold: 0.85
+IoU Threshold: 0.5
+Max Proposals: 200
+
+Performance Metrics:
+  True Positives: 25
+  True Negatives: 0
+  False Positives: 0
+  False Negatives: 1
+
+  Accuracy: 0.9615
+  Precision: 1.0000
+  Recall (Sensitivity): 0.9615
+  F1 Score: 0.9804

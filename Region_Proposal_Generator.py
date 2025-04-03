@@ -20,7 +20,7 @@ class RegionProposalGenerator:
         self.reference_embedding = None
         self.ss = cv2.ximgproc.segmentation.createSelectiveSearchSegmentation()
         
-    def set_reference(self, image_path, roi=None):
+    def set_reference(self, image_path, roi=None, save_path = False):
         """
         Set the reference embedding from an image ROI.
         
@@ -30,7 +30,9 @@ class RegionProposalGenerator:
         """
         if roi is None:
             roi = self.embedding_extractor.select_roi(image_path)
+        if save_path:
             
+
         # Use the new extract_embedding_from_roi method from your CLIP-based extractor
         self.reference_embedding = self.embedding_extractor.extract_embedding_from_roi(image_path, roi)
         print(f"Reference embedding set from ROI: {roi}")
@@ -64,9 +66,6 @@ class RegionProposalGenerator:
             x, y, w, h = rect
             if w >= 20 and h >= 20:  # Minimum size requirement
                 filtered_rects.append(rect)
-        
-        # Limit to max_proposals
-        filtered_rects = filtered_rects[:max_proposals]
         
         return filtered_rects
     
