@@ -4,11 +4,8 @@ import numpy as np
 import csv
 from tqdm import tqdm
 import sys
-
-# Import the embedding extractor and region proposal generator
 from CLIP_Embedding_Extractor import EmbeddingExtractor
-from Region_Proposal_Generator import RegionProposalGenerator
-
+from Region_Proposal_Filtered_Generator import RegionProposalGenerator
 def run_embedding_based_detection(
     reference_image_path,
     reference_roi=None,
@@ -181,23 +178,12 @@ def run_embedding_based_detection(
     return metrics
 
 if __name__ == "__main__":
-    reference_image = "One_Shot_HVAC.jpg"  # Default reference image
-    test_dir = "test_HVAC_batch"  # Default test directory
-    output_dir = "embedding_hvac_results_0.85"  # Default output directory
+    reference_image = "sample_1_reference.png"  # Default reference image
+    test_dir = "sample2"  # Default test directory
+    output_dir = "drone_hvac_results_run3_0.85"  # Default output directory
     
     # List of images known to contain HVAC units (ground truth)
-    hvac_images = [
-        "has_hvac_1.jpg",
-        "has_hvac_2.jpg",
-        "has_hvac_3.jpg",
-        "has_hvac_4.jpg",
-        "has_hvac_5.jpg",
-        "has_hvac_6.jpg",
-        "has_hvac_7.jpg",
-        "has_hvac_8.jpg",
-        "has_hvac_9.jpg",
-        "has_hvac_10.jpg"
-    ]
+    hvac_images = [f"{i}.png" for i in range(1, 27)]
     
     # Run the embedding-based detection
     metrics = run_embedding_based_detection(

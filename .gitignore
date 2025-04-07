@@ -28,9 +28,6 @@ models/
 *.hdf5
 
 # Large files
-*.jpg
-*.jpeg
-*.png
 *.csv
 *.xlsx
 
